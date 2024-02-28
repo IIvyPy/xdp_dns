@@ -2,10 +2,11 @@ package main
 
 import (
 	"fmt"
-	"github.com/cilium/ebpf/link"
 	"log"
 	"net"
-	xebpf "xdp_travel/kernel"
+	xebpf "travel/kernel"
+
+	"github.com/cilium/ebpf/link"
 
 	"github.com/cilium/ebpf"
 	"golang.org/x/sys/unix"
@@ -29,26 +30,40 @@ func main() {
 		log.Fatalf("lookup network iface %q: %s", "enp5s0f1", err)
 	}
 
-	// Attach the program.
-	l, err := link.AttachXDP(link.XDPOptions{
-		Program:   objs.XdpPass,
-		Interface: iface.Index,
-	})
 	if err != nil {
 		log.Fatalf("could not attach XDP program: %s", err)
 	}
-	defer l.Close()
+
 	if err1 := loadObjects(); err1 != nil {
 		fmt.Println("load objects error, error is ", err1)
 	}
 
 	defer closeObjects()
 
+	// // set XDP_PASS
+	// progFD := int32(objs.XdpPass.FD())
+	// if err = objs.ProgJumps1.Put(XDP_PASS, &progFD); err != nil {
+	// 	fmt.Printf("ProgJumps1.Put; err: %s", err.Error())
+	// }
+
 	// set XDP_TX
-	proFD := int32(objs.XdpTx.FD())
-	if err = objs.ProgJumps1.Put(XDP_TX, &proFD); err != nil {
+	progFD := int32(objs.XdpTx.FD())
+	if err = objs.ProgJumps1.Put(XDP_TX, &progFD); err != nil {
 		fmt.Printf("ProgJumps1.Put; err: %s", err.Error())
 	}
+
+	// Attach the program.
+	l, err := link.AttachXDP(link.XDPOptions{
+		Program:   objs.XdpPass,
+		Interface: iface.Index,
+	})
+	if err != nil {
+		fmt.Printf("link.AttachXDP; err: %s", err.Error())
+	}
+	fmt.Println("link.AttachXDP", iface.Index)
+	defer l.Close()
+
+	select {}
 }
 
 func loadObjects() error {
