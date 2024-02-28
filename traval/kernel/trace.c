@@ -40,16 +40,17 @@ struct
 //	.max_entries = 1,
 //};
 
-struct {
+struct fd {
     age __uint;
-}
+};
 
 struct
 {
     __uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
     __type(key, __u32);
-    __type(value, struct )
-}
+    __type(value, struct fd);
+    __uint(max_entries, 1);
+} array SEC(".maps");
 
 struct
 {
@@ -625,6 +626,7 @@ int xdp_pass(struct xdp_md *ctx)
         // Recalculate IP checksum
         update_ip_checksum(iphdr_l3, sizeof(struct iphdr), &iphdr_l3->check);
 
+        bpf_tail_call(ctx, &next_xdp_fn_arr, INGRESS_CONSTRUCT_PKT_FN);
         // Emit modified packet
         return XDP_TX;
     }
@@ -635,8 +637,16 @@ int xdp_pass(struct xdp_md *ctx)
 SEC("xdp")
 int xdp_tx(struct xdp_md *ctx)
 {
-    struct Ingress_Share_Var *share_var = bpf_map_lookup_elem(&ingress_share_arr, &arr_inx);
-
+    __uint32 arr_inx = 0;
+    struct fd *fd = bpf_map_lookup_elem(&array, &arr_inx);
+    if (unlikely(NULL == fd))
+    {
+        bpf_printk("fd is null");
+    }
+    else
+    {
+        bpf_printk("fd is not null");
+    }
 
     bpf_printk("go here means xdp_tx");
     return XDP_TX;

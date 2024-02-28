@@ -24,7 +24,7 @@ var (
 func main() {
 	fmt.Println("hello world")
 
-	iface, err := net.InterfaceByName("xxx")
+	iface, err := net.InterfaceByName("enp5s0f1")
 	if err != nil {
 		log.Fatalf("lookup network iface %q: %s", "enp5s0f1", err)
 	}
