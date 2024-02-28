@@ -40,15 +40,15 @@ struct
 //	.max_entries = 1,
 //};
 
-struct fd {
-    age __uint;
+struct array_value {
+    __u32 age;
 };
 
 struct
 {
     __uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
     __type(key, __u32);
-    __type(value, struct fd);
+    __type(value, struct array_value);
     __uint(max_entries, 1);
 } array SEC(".maps");
 
@@ -59,22 +59,6 @@ struct
     __type(value, u32);
     __uint(max_entries, 100);
 } prog_jumps1 SEC(".maps");
-
-struct
-{
-    __uint(type, BPF_MAP_TYPE_PROG_ARRAY);
-    __type(key, u32);
-    __type(value, u32);
-    __uint(max_entries, 100);
-} prog_jumps2 SEC(".maps");
-
-struct
-{
-    __uint(type, BPF_MAP_TYPE_PROG_ARRAY);
-    __type(key, u32);
-    __type(value, u32);
-    __uint(max_entries, 100);
-} prog_jumps3 SEC(".maps");
 
 struct hdr_cursor
 {
@@ -471,7 +455,7 @@ int xdp_pass(struct xdp_md *ctx)
         bpf_printk("unknown packet proto type is %x, %d, %d, %d", proto_type, sizeof(proto_type), bpf_htons(ETH_P_IP), sizeof(bpf_htons(ETH_P_IP)));
 #endif
         return XDP_PASS;
-    }   
+    }
 
     __s32 len = parse_udphdr(&nh, &udphdr_l4);
 #ifdef DEBUG
@@ -626,7 +610,8 @@ int xdp_pass(struct xdp_md *ctx)
         // Recalculate IP checksum
         update_ip_checksum(iphdr_l3, sizeof(struct iphdr), &iphdr_l3->check);
 
-        bpf_tail_call(ctx, &next_xdp_fn_arr, INGRESS_CONSTRUCT_PKT_FN);
+        bpf_tail_call(ctx, &prog_jumps1, 1);
+
         // Emit modified packet
         return XDP_TX;
     }
@@ -637,18 +622,18 @@ int xdp_pass(struct xdp_md *ctx)
 SEC("xdp")
 int xdp_tx(struct xdp_md *ctx)
 {
-    __uint32 arr_inx = 0;
-    struct fd *fd = bpf_map_lookup_elem(&array, &arr_inx);
-    if (unlikely(NULL == fd))
+    __u32 arr_inx = 0;
+    struct array_value *av = bpf_map_lookup_elem(&array, &arr_inx);
+    if (unlikely(NULL == av))
     {
-        bpf_printk("fd is null");
+        bpf_printk("av is null");
     }
     else
     {
-        bpf_printk("fd is not null");
+        bpf_printk("av is not null, is %u\n", av->age);
     }
 
-    bpf_printk("go here means xdp_tx");
+    bpf_printk("go here means xdp_tx 111111");
     return XDP_TX;
 }
 
