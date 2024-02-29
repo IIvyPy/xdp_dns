@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"log"
 	"net"
-	xebpf "travel/kernel"
+	xebpf "xdp_travel/kernel"
 
 	"github.com/cilium/ebpf/link"
 
@@ -25,9 +25,9 @@ var (
 func main() {
 	fmt.Println("hello world")
 
-	iface, err := net.InterfaceByName("enp5s0f1")
+	iface, err := net.InterfaceByName("enp0s3")
 	if err != nil {
-		log.Fatalf("lookup network iface %q: %s", "enp5s0f1", err)
+		log.Fatalf("lookup network iface %q: %s", "enp0s3", err)
 	}
 
 	if err != nil {

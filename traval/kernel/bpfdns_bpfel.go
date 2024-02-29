@@ -17,6 +17,8 @@ type BpfDNSA_record struct {
 	Ttl    uint32
 }
 
+type BpfDNSArrayValue struct{ Age uint32 }
+
 type BpfDNSDnsQueryHdr struct {
 	Qtype  uint16
 	Qclass uint16
@@ -72,10 +74,9 @@ type BpfDNSProgramSpecs struct {
 //
 // It can be passed ebpf.CollectionSpec.Assign.
 type BpfDNSMapSpecs struct {
+	Array      *ebpf.MapSpec `ebpf:"array"`
 	NameMaps   *ebpf.MapSpec `ebpf:"name_maps"`
 	ProgJumps1 *ebpf.MapSpec `ebpf:"prog_jumps1"`
-	ProgJumps2 *ebpf.MapSpec `ebpf:"prog_jumps2"`
-	ProgJumps3 *ebpf.MapSpec `ebpf:"prog_jumps3"`
 }
 
 // BpfDNSObjects contains all objects after they have been loaded into the kernel.
@@ -97,18 +98,16 @@ func (o *BpfDNSObjects) Close() error {
 //
 // It can be passed to LoadBpfDNSObjects or ebpf.CollectionSpec.LoadAndAssign.
 type BpfDNSMaps struct {
+	Array      *ebpf.Map `ebpf:"array"`
 	NameMaps   *ebpf.Map `ebpf:"name_maps"`
 	ProgJumps1 *ebpf.Map `ebpf:"prog_jumps1"`
-	ProgJumps2 *ebpf.Map `ebpf:"prog_jumps2"`
-	ProgJumps3 *ebpf.Map `ebpf:"prog_jumps3"`
 }
 
 func (m *BpfDNSMaps) Close() error {
 	return _BpfDNSClose(
+		m.Array,
 		m.NameMaps,
 		m.ProgJumps1,
-		m.ProgJumps2,
-		m.ProgJumps3,
 	)
 }
 
