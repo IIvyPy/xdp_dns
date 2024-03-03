@@ -25,6 +25,11 @@ type BpfDNSDnsQueryHdr struct {
 	Name   [256]int8
 }
 
+type BpfDNSLpmName struct {
+	Prefixlen uint32
+	Data      [256]int8
+}
+
 // LoadBpfDNS returns the embedded CollectionSpec for BpfDNS.
 func LoadBpfDNS() (*ebpf.CollectionSpec, error) {
 	reader := bytes.NewReader(_BpfDNSBytes)
@@ -67,6 +72,7 @@ type BpfDNSSpecs struct {
 // It can be passed ebpf.CollectionSpec.Assign.
 type BpfDNSProgramSpecs struct {
 	XdpPass *ebpf.ProgramSpec `ebpf:"xdp_pass"`
+	XdpTest *ebpf.ProgramSpec `ebpf:"xdp_test"`
 	XdpTx   *ebpf.ProgramSpec `ebpf:"xdp_tx"`
 }
 
@@ -74,9 +80,10 @@ type BpfDNSProgramSpecs struct {
 //
 // It can be passed ebpf.CollectionSpec.Assign.
 type BpfDNSMapSpecs struct {
-	Array      *ebpf.MapSpec `ebpf:"array"`
-	NameMaps   *ebpf.MapSpec `ebpf:"name_maps"`
-	ProgJumps1 *ebpf.MapSpec `ebpf:"prog_jumps1"`
+	Array       *ebpf.MapSpec `ebpf:"array"`
+	LpmNameMaps *ebpf.MapSpec `ebpf:"lpm_name_maps"`
+	NameMaps    *ebpf.MapSpec `ebpf:"name_maps"`
+	ProgJumps   *ebpf.MapSpec `ebpf:"prog_jumps"`
 }
 
 // BpfDNSObjects contains all objects after they have been loaded into the kernel.
@@ -98,16 +105,18 @@ func (o *BpfDNSObjects) Close() error {
 //
 // It can be passed to LoadBpfDNSObjects or ebpf.CollectionSpec.LoadAndAssign.
 type BpfDNSMaps struct {
-	Array      *ebpf.Map `ebpf:"array"`
-	NameMaps   *ebpf.Map `ebpf:"name_maps"`
-	ProgJumps1 *ebpf.Map `ebpf:"prog_jumps1"`
+	Array       *ebpf.Map `ebpf:"array"`
+	LpmNameMaps *ebpf.Map `ebpf:"lpm_name_maps"`
+	NameMaps    *ebpf.Map `ebpf:"name_maps"`
+	ProgJumps   *ebpf.Map `ebpf:"prog_jumps"`
 }
 
 func (m *BpfDNSMaps) Close() error {
 	return _BpfDNSClose(
 		m.Array,
+		m.LpmNameMaps,
 		m.NameMaps,
-		m.ProgJumps1,
+		m.ProgJumps,
 	)
 }
 
@@ -116,12 +125,14 @@ func (m *BpfDNSMaps) Close() error {
 // It can be passed to LoadBpfDNSObjects or ebpf.CollectionSpec.LoadAndAssign.
 type BpfDNSPrograms struct {
 	XdpPass *ebpf.Program `ebpf:"xdp_pass"`
+	XdpTest *ebpf.Program `ebpf:"xdp_test"`
 	XdpTx   *ebpf.Program `ebpf:"xdp_tx"`
 }
 
 func (p *BpfDNSPrograms) Close() error {
 	return _BpfDNSClose(
 		p.XdpPass,
+		p.XdpTest,
 		p.XdpTx,
 	)
 }

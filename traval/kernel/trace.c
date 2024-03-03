@@ -4,69 +4,6 @@
 #include "include/common.h"
 #include "include/linux/if_ether.h"
 #include "include/bpf/bpf_endian.h"
-#include <bpf/bpf_helpers.h>
-#include <string.h>
-
-// likely optimization
-#ifndef likely
-#define likely(x) __builtin_expect(!!(x), 1)
-#endif
-
-#ifndef unlikely
-#define unlikely(x) __builtin_expect(!!(x), 0)
-#endif
-
-#ifndef memcpy
-#define memcpy(dest, src, n) __builtin_memcpy((dest), (src), (n))
-#endif
-
-#ifndef memmove
-#define memmove(dest, src, n) __builtin_memmove((dest), (src), (n))
-#endif
-
-struct
-{
-    __uint(type, BPF_MAP_TYPE_HASH);
-    __type(key, struct dns_query_hdr);
-    __type(value, struct a_record);
-    __uint(max_entries, 65535);
-    __uint(pinning, LIBBPF_PIN_BY_NAME);
-} name_maps SEC(".maps");
-
-//struct bpf_map_def SEC("maps") ingress_share_arr = {
-//	.type = BPF_MAP_TYPE_PERCPU_ARRAY,
-//	.key_size = sizeof(__u32),
-//	.value_size = sizeof(struct Ingress_Share_Var),
-//	.max_entries = 1,
-//};
-
-struct array_value {
-    __u32 age;
-};
-
-struct
-{
-    __uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
-    __type(key, __u32);
-    __type(value, struct array_value);
-    __uint(max_entries, 1);
-} array SEC(".maps");
-
-struct
-{
-    __uint(type, BPF_MAP_TYPE_PROG_ARRAY);
-    __type(key, u32);
-    __type(value, u32);
-    __uint(max_entries, 100);
-} prog_jumps1 SEC(".maps");
-
-struct hdr_cursor
-{
-    void *pos;
-    void *data;
-    void *data_end;
-    __u32 ofs;
-};
 
 static __s32 parse_ethhdr(struct hdr_cursor *nh, struct ethhdr **ethhdr_l2)
 {
@@ -144,7 +81,8 @@ static int parse_edns0_hdr(struct hdr_cursor *nh, struct dns_edns_hdr *ednshdr)
 #endif
 
 // Parse query and return query length
-static int parse_query_question(struct hdr_cursor *nh, struct dns_query_hdr *dnsqrhdr_l7)
+static int parse_query_question(struct hdr_cursor *nh, struct lpm_name *query_name_key)
+// static int parse_query_question(struct hdr_cursor *nh, struct dns_query_hdr *dnsqrhdr_l7, struct lpm_name *query_name_key)
 {
     uint16_t i;
     void *cursor = nh->pos;
@@ -152,10 +90,12 @@ static int parse_query_question(struct hdr_cursor *nh, struct dns_query_hdr *dns
 
     // Fill dns_query.name with zero bytes
     // Not doing so will make the verifier complain when dns_query is used as a key in bpf_map_lookup
-    memset(&dnsqrhdr_l7->name[0], 0, sizeof(dnsqrhdr_l7->name));
+    // memset(&dnsqrhdr_l7->name, 0, DNS_MAX_NAME_LEN);
+    memset(&query_name_key->data, 0, DNS_MAX_NAME_LEN);
+    query_name_key->prefixlen = 0;
     // Fill record_type and class with default values to satisfy verifier
-    dnsqrhdr_l7->qtype = 0;
-    dnsqrhdr_l7->qclass = 0;
+    // dnsqrhdr_l7->qtype = 0;
+    // dnsqrhdr_l7->qclass = 0;
 
     // We create a bounded loop of DNS_MAX_NAME_LEN (maximum allowed dns name size).
     // We'll loop through the packet byte by byte until we reach '0' in order to get the dns query name
@@ -192,16 +132,20 @@ static int parse_query_question(struct hdr_cursor *nh, struct dns_query_hdr *dns
             }
             else
             {
-                dnsqrhdr_l7->qtype = bpf_htons(*(uint16_t *)(cursor + 1));
-                dnsqrhdr_l7->qclass = bpf_htons(*(uint16_t *)(cursor + 3));
-            }
+                // dnsqrhdr_l7->qtype = bpf_htons(*(uint16_t *)(cursor + 1));
+                // dnsqrhdr_l7->qclass = bpf_htons(*(uint16_t *)(cursor + 3));
+                query_name_key->data[namepos++] = 0;
+                query_name_key->prefixlen = namepos;
+                bpf_printk("receive namepos is %d\n", namepos);
+            }  
 
             // Return the bytecount of (namepos + current '0' byte + dns type + dns class) as the query length.
             return namepos + 1 + 2 + 2;
         }
 
         // Read and fill data into struct
-        dnsqrhdr_l7->name[namepos] = *(char *)(cursor);
+        // dnsqrhdr_l7->name[namepos] = *(char *)(cursor);
+        query_name_key->data[namepos] = *(char *)(cursor);
         namepos++;
         cursor++;
     }
@@ -491,11 +435,13 @@ int xdp_pass(struct xdp_md *ctx)
 #ifdef DEBUG
     bpf_printk("DNS query transaction id %u", bpf_ntohs(dnshdr_l7->transaction_id));
 #endif
-    struct dns_query_hdr dns_qrhdr_l7;
+    // struct dns_query_hdr dns_qrhdr_l7;
+    struct lpm_name lpm_qname_key;
 
     nh.pos += sizeof(struct dns_hdr);
 
-    int query_len = parse_query_question(&nh, &dns_qrhdr_l7);
+    // int query_len = parse_query_question(&nh, &dns_qrhdr_l7, &lpm_qname_key);
+    int query_len = parse_query_question(&nh, &lpm_qname_key);
 #ifdef DEBUG
     bpf_printk("receive query_len is %d", query_len);
 #endif
@@ -515,23 +461,36 @@ int xdp_pass(struct xdp_md *ctx)
     // Change DNS header to a valid response header
     modify_dns_header_response(dnshdr_l7);
 
-    struct a_record *rd = bpf_map_lookup_elem(&name_maps, &dns_qrhdr_l7);
+    bpf_printk("receive query name 1: %d%c%c\n", lpm_qname_key.data[0], lpm_qname_key.data[1], lpm_qname_key.data[2]);
+    bpf_printk("receive query name 2: %c%c%c\n", lpm_qname_key.data[3], lpm_qname_key.data[4], lpm_qname_key.data[5]);
+    bpf_printk("receive query name 2: %d%c%c\n", lpm_qname_key.data[6], lpm_qname_key.data[7], lpm_qname_key.data[8]);
+    bpf_printk("receive query name 3: %c%d\n", lpm_qname_key.data[9], lpm_qname_key.data[10]);
+    struct a_record *rd = bpf_map_lookup_elem(&lpm_name_maps, &lpm_qname_key);
     if (!rd)
     {
-        bpf_printk("got no cache\n");
-        bpf_map_update_elem(&name_maps, &dns_qrhdr_l7, &record, BPF_ANY);
+        bpf_printk("has no record for given query name\n");
+        return XDP_PASS;
+    }else{
+        create_query_response(&dns_buffer[buf_size], &buf_size, rd);
     }
 
-    struct a_record *new_rd = bpf_map_lookup_elem(&name_maps, &dns_qrhdr_l7);
-    if (new_rd)
-    {
-        // Create DNS response and add to temporary buffer.
-        create_query_response(&dns_buffer[buf_size], &buf_size, new_rd);
-    }
-    else
-    {
-        return XDP_ABORTED;
-    }
+    // struct a_record *rd = bpf_map_lookup_elem(&name_maps, &dns_qrhdr_l7);
+    // if (!rd)
+    // {
+    //     bpf_printk("got no cache\n");
+    //     bpf_map_update_elem(&name_maps, &dns_qrhdr_l7, &record, BPF_ANY);
+    // }
+
+    // struct a_record *new_rd = bpf_map_lookup_elem(&name_maps, &dns_qrhdr_l7);
+    // if (new_rd)
+    // {
+    //     // Create DNS response and add to temporary buffer.
+    //     create_query_response(&dns_buffer[buf_size], &buf_size, new_rd);
+    // }
+    // else
+    // {
+    //     return XDP_ABORTED;
+    // }
 
     // Start our response [query_length] bytes beyond the header
     nh.pos += query_len;
@@ -610,7 +569,7 @@ int xdp_pass(struct xdp_md *ctx)
         // Recalculate IP checksum
         update_ip_checksum(iphdr_l3, sizeof(struct iphdr), &iphdr_l3->check);
 
-        bpf_tail_call(ctx, &prog_jumps1, 1);
+        bpf_tail_call(ctx, &prog_jumps, INX_1);
 
         // Emit modified packet
         return XDP_TX;
@@ -627,13 +586,42 @@ int xdp_tx(struct xdp_md *ctx)
     if (unlikely(NULL == av))
     {
         bpf_printk("av is null");
+        return XDP_DROP;
     }
     else
     {
         bpf_printk("av is not null, is %u\n", av->age);
+        av->age = 1;
+        bpf_map_update_elem(&array, &arr_inx, av, BPF_ANY);
     }
 
     bpf_printk("go here means xdp_tx 111111");
+
+    bpf_tail_call(ctx, &prog_jumps, INX_2);
+    return XDP_TX;
+}
+
+SEC("xdp")
+int xdp_test(struct xdp_md *ctx)
+{
+    __u32 arr_inx = 0;
+    struct array_value *av = bpf_map_lookup_elem(&array, &arr_inx);
+    if (unlikely(NULL == av))
+    {
+        bpf_printk("av is null");
+        return XDP_DROP;
+    }
+    else
+    {
+        if (av->age != 1)
+        {
+            bpf_printk("warning: should not be here av age is not 1, is %u\n", av->age);
+            return XDP_DROP;
+        }
+        bpf_printk("av is not null, is %u\n", av->age);
+    }
+
+    bpf_printk("go here means xdp_test 222222");
     return XDP_TX;
 }
 

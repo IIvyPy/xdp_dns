@@ -1,4 +1,7 @@
 #include "vmlinux.h"
+#include <bpf/bpf_helpers.h>
+#include <string.h>
+
 #ifndef __DNS_PROTO_H__
 #define __DNS_PROTO_H__
 
@@ -30,6 +33,80 @@
 // DNS TYPE
 #define DNS_TYPE_A 0x0001
 #define DNS_TYPE_AAAA 0x001C
+
+// bpf_prog_inx
+#define INX_1 1
+#define INX_2 2
+
+// likely optimization
+#ifndef likely
+#define likely(x) __builtin_expect(!!(x), 1)
+#endif
+
+#ifndef unlikely
+#define unlikely(x) __builtin_expect(!!(x), 0)
+#endif
+
+#ifndef memcpy
+#define memcpy(dest, src, n) __builtin_memcpy((dest), (src), (n))
+#endif
+
+#ifndef memmove
+#define memmove(dest, src, n) __builtin_memmove((dest), (src), (n))
+#endif
+
+struct lpm_name
+{
+    __u32 prefixlen;             // qname len
+    char data[DNS_MAX_NAME_LEN]; // qname
+};
+
+struct
+{
+    __uint(type, BPF_MAP_TYPE_LPM_TRIE);
+    __type(key, struct lpm_name);
+    __type(value, struct a_record);
+    __uint(max_entries, 65535);
+    __uint(pinning, LIBBPF_PIN_BY_NAME);
+    __uint(map_flags, BPF_F_NO_PREALLOC);
+} lpm_name_maps SEC(".maps");
+
+struct
+{
+    __uint(type, BPF_MAP_TYPE_HASH);
+    __type(key, struct dns_query_hdr);
+    __type(value, struct a_record);
+    __uint(max_entries, 65535);
+    __uint(pinning, LIBBPF_PIN_BY_NAME);
+} name_maps SEC(".maps");
+
+struct array_value {
+    __u32 age;
+};
+
+struct
+{
+    __uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
+    __type(key, __u32);
+    __type(value, struct array_value);
+    __uint(max_entries, 1);
+} array SEC(".maps");
+
+struct
+{
+    __uint(type, BPF_MAP_TYPE_PROG_ARRAY);
+    __type(key, u32);
+    __type(value, u32);
+    __uint(max_entries, 100);
+} prog_jumps SEC(".maps");
+
+struct hdr_cursor
+{
+    void *pos;
+    void *data;
+    void *data_end;
+    __u32 ofs;
+};
 
 enum dn_opt_code
 {
